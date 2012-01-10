@@ -1,0 +1,57 @@
+---
+layout: tutorial
+title: Binding ElasticSearch on multiple networks with some restrictions
+cat: tutorials
+author: Frédéric de Villamil
+nick: fdv
+tutorial_desc: Binding ElasticSearch on multiple networks with some restrictions
+---
+
+We had to deploy an ElasticSearch cluster in a particular environment, with hosts being connected to the Internet and 2 interfaces accessing the same private network. As we were dealing with some restrictions, the setup became quite tricky:
+
+eth0: public IP, listening on the Internet, with iptables rules blocking inbound and outbound connections on port 9200 and 9300.
+eth1: private RFC1918 IP address. 
+lo:0: a single private  RFC1918 address used on every node with IPVS / IPFail for load balancing and fail over purpose.
+ 
+h2. Why is this setup tricky?
+ 
+1. By default, ElasticSearch listens eth0 if it exists and is up. Shutting down eth0 and setting it up will just break your setup. Adding iptables rules and will cause only trouble. Using unicast and a list of IPs won't be enough to solve the issue.
+ 
+2. You can't bind ElasticSearch on a list of interfaces: it's either 0.0.0.0 or a single interface. I need my ElasticSearch to listen both on eth1 and lo0, but not on eth0.
+ 
+h2. Configuration
+ 
+We're using unicast with a defined list of servers to prevent ElasticSearch to look for anything on eth0 and send multicast packets over the network.
+
+<pre class="prettyprint">
+"discovery": {
+  "zen": {
+    "ping": {
+      "multicast": {
+        "enabled": false
+      },
+      "unicast": {
+        "hosts": ["es1", "es2", "es3"]
+      }
+    }
+  }
+},	
+</pre> 
+ 
+We're telling ElasticSearch to publish itself within the cluster on eth1, using IPv4 only as we don't want IPv6 here, so other nodes will be able to connect to it.
+ 
+<pre class="prettyprint">
+"network" : {
+  "publish_host": "_eth1:ipv4_"
+},
+</pre> 
+
+Finally, we setup the transport to listen on eth1 as well:
+ 
+<pre class="prettyprint">
+"transport" : {
+  "host": "_eth1:ipv4_"
+},
+</pre> 
+
+This setup allows ElasticSearch REST API to be accessed from anywhere while restraining the transport and publication to the internal networks only.
